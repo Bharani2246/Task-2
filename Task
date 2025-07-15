@@ -1,0 +1,66 @@
+import java.net.URI;
+import java.net.http.*;
+import java.nio.charset.StandardCharsets;
+import java.time.*;
+import java.time.format.DateTimeFormatter;
+import org.json.*;
+
+public class WeatherFetcher {
+    private static final String API_KEY = "YOUR_VISUALCROSSING_KEY";
+    private static final String BASE_URL = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline/";
+
+    public static void main(String[] args) throws Exception {
+        if (args.length < 1) {
+            System.err.println("Usage: java WeatherFetcher <City,Country>");
+            return;
+        }
+        String location = args[0];
+        String rawJson = fetchWeatherJson(location);
+        printForecast(rawJson);
+    }
+
+    // 1️⃣ Fetch JSON via HTTP GET
+    private static String fetchWeatherJson(String location) throws Exception {
+        String url = BASE_URL + URI.create(location).toASCIIString()
+                   + "?unitGroup=metric&key=" + API_KEY + "&include=days";
+        HttpRequest req = HttpRequest.newBuilder()
+            .uri(URI.create(url))
+            .header("Accept", "application/json")
+            .GET()
+            .build();
+
+        HttpClient client = HttpClient.newHttpClient();
+        HttpResponse<String> resp = client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        if (resp.statusCode() != 200) {
+            throw new RuntimeException("HTTP error: " + resp.statusCode());
+        }
+        return resp.body();
+    }
+
+    // 2️⃣ Parse JSON and print tabular forecast
+    private static void printForecast(String json) {
+        JSONObject root = new JSONObject(json);
+        String addr = root.optString("resolvedAddress", root.optString("address", "Unknown location"));
+        String tz = root.getString("timezone");
+        JSONArray days = root.getJSONArray("days");
+
+        System.out.printf("📍 Weather forecast for: %s (%s)%n", addr, tz);
+        System.out.println("Date        | Max  | Min  | Precip | Conditions");
+        System.out.println("-----------------------------------------------");
+
+        ZoneId zone = ZoneId.of(tz);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+
+        for (int i = 0; i < days.length(); i++) {
+            JSONObject d = days.getJSONObject(i);
+            Instant dt = Instant.ofEpochSecond(d.getLong("datetimeEpoch"));
+            String date = ZonedDateTime.ofInstant(dt, zone).format(fmt);
+            double max = d.getDouble("tempmax");
+            double min = d.getDouble("tempmin");
+            double precip = d.getDouble("precip");
+            String cond = d.optString("conditions", d.optString("icon", "N/A"));
+
+            System.out.printf("%s | %5.1f | %5.1f | %6.1f | %s%n", date, max, min, precip, cond);
+        }
+    }
+}
